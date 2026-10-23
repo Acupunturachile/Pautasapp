@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthorizedClinicalUser() {
+      return request.auth != null &&
+        (request.auth.token.email.lower() in [
+          'jcontreras.ktr@gmail.com',
+          'gerald.barra369@gmail.com',
+          'jorgehreyesa@gmail.com',
+          'nicolas.cataldo.07@gmail.com',
+          'titaelc@yahoo.es',
+          'kat.cruz.kretulis@gmail.com',
+          'contacto@acupuntura-chile.cl',
+          'energia.plateada3311@gmail.com',
+          'lucasguggiari27@gmail.com',
+          'reservasacumaule@gmail.com',
+          'jorgecastrogonzalez@gmail.com',
+          'femoralesgo@gmail.com',
+          'm.painecura.g@gmail.com'
+        ]);
+    }
+
+    match /{document=**} {
+      allow read, write: if isAuthorizedClinicalUser();
+    }
+  }
+}

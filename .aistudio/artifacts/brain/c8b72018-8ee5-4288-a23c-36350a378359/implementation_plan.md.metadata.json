@@ -1,0 +1,6 @@
+{
+  "summary":  "Plan de implementación para modernizar y modularizar la aplicación de Pautas de Ejercicios y Rehabilitación en React + TypeScript con Tailwind CSS. Se preservan el 100% de las funcionalidades clínicas (catálogo de 30+ ejercicios con cargas baja/moderada/alta, tamizaje de seguridad, progresión de 4 semanas, digitopuntura anatómica con esquemas SVG y fotos, medicina tradicional china y seguimiento EVA/funcional con gráficos interactivos), adoptando una estética minimalista neutra con pizarra y azul médico, arquitectura modular y vista previa interactiva optimizada para impresión y WhatsApp.",
+  "updatedAt":  "2026-10-22T20:02:55.222319289Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

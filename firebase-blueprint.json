@@ -1,0 +1,110 @@
+{
+  "entities": {
+    "ClinicalPlan": {
+      "title": "ClinicalPlan",
+      "description": "Pauta clínica de ejercicios y rehabilitación prescrita para un paciente",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Identificador único de la pauta" },
+        "paciente": { "type": "string", "description": "Nombre completo del paciente" },
+        "edad": { "type": "string", "description": "Edad del paciente" },
+        "sexo": { "type": "string", "description": "Sexo o género del paciente" },
+        "condicion": { "type": "string", "description": "Condición o patología principal tratada" },
+        "condicionMedica": { "type": "string", "description": "Condición médica de base o factores de riesgo" },
+        "diagnostico": { "type": "string", "description": "Diagnóstico kinésico / clínico detallado" },
+        "profesional": { "type": "string", "description": "Nombre del profesional tratante" },
+        "fecha": { "type": "string", "description": "Fecha de prescripción de la pauta" },
+        "notas": { "type": "string", "description": "Recomendaciones generales e indicaciones" },
+        "frecuencia": { "type": "number", "description": "Días por semana recomendados" },
+        "progModo": { "type": "string", "description": "Modo de progresión planificada" },
+        "items": { "type": "array", "description": "Lista de ejercicios seleccionados con dosis y nivel" },
+        "digito": { "type": "object", "description": "Protocolo de digitopuntura anatómica complementario" },
+        "tcm": { "type": "object", "description": "Diferenciación de síndromes MTC (lengua, pulso, patrón)" },
+        "createdAt": { "type": "number", "description": "Timestamp de creación" }
+      },
+      "required": ["paciente", "fecha", "items"]
+    },
+    "TrackingSession": {
+      "title": "TrackingSession",
+      "description": "Sesión de control y seguimiento de evolución clínica",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Identificador de la sesión de seguimiento" },
+        "key": { "type": "string", "description": "Clave única normalizada del paciente" },
+        "paciente": { "type": "string", "description": "Nombre del paciente" },
+        "iso": { "type": "string", "description": "Fecha de control en formato ISO" },
+        "eva": { "type": "number", "description": "Nivel de dolor en escala EVA (0 a 10)" },
+        "instr": { "type": "string", "description": "Cuestionario o instrumento funcional aplicado" },
+        "puntaje": { "type": "number", "description": "Puntaje obtenido en el cuestionario" },
+        "borg": { "type": "number", "description": "Escala de esfuerzo percibido Borg (6 a 20)" },
+        "notas": { "type": "string", "description": "Anotaciones clínicas del control" },
+        "createdAt": { "type": "number", "description": "Timestamp de registro" }
+      },
+      "required": ["key", "paciente", "iso"]
+    },
+    "CustomExercise": {
+      "title": "CustomExercise",
+      "description": "Ejercicio creado o modificado por el profesional",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID del ejercicio" },
+        "nombre": { "type": "string", "description": "Nombre del ejercicio" },
+        "categoria": { "type": "string", "description": "flexibilidad, fortalecimiento o aerobico" },
+        "area": { "type": "string", "description": "Zona corporal tratada" },
+        "descripcion": { "type": "string", "description": "Descripción general" },
+        "niveles": { "type": "object", "description": "Dosificación por nivel (bajo, moderado, alto)" },
+        "progresion": { "type": "string", "description": "Pauta de progresión sugerida" },
+        "icon": { "type": "string", "description": "Identificador del icono" },
+        "createdAt": { "type": "number", "description": "Timestamp de guardado" }
+      },
+      "required": ["nombre", "categoria", "area"]
+    },
+    "CustomTemplate": {
+      "title": "CustomTemplate",
+      "description": "Plantilla clínica personalizada guardada para reusar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID de la plantilla" },
+        "nombre": { "type": "string", "description": "Nombre de la plantilla" },
+        "diag": { "type": "string", "description": "Diagnóstico predefinido" },
+        "digito": { "type": "string", "description": "Grupo de digitopuntura sugerido" },
+        "frec": { "type": "number", "description": "Frecuencia semanal sugerida" },
+        "notas": { "type": "string", "description": "Indicaciones predeterminadas" },
+        "items": { "type": "array", "description": "Ejercicios de la plantilla" }
+      },
+      "required": ["nombre"]
+    },
+    "PuntoFoto": {
+      "title": "PuntoFoto",
+      "description": "Foto o esquema personalizado para un punto de digitopuntura",
+      "type": "object",
+      "properties": {
+        "cod": { "type": "string", "description": "Código del punto (ej. IG4, E36)" },
+        "dataUrl": { "type": "string", "description": "Imagen en Base64 o URL" }
+      },
+      "required": ["cod", "dataUrl"]
+    }
+  },
+  "firestore": {
+    "/plans/{planId}": {
+      "schema": "ClinicalPlan",
+      "description": "Colección de pautas clínicas emitidas para los pacientes"
+    },
+    "/sesiones/{sesionId}": {
+      "schema": "TrackingSession",
+      "description": "Colección de registros de control y evolución clínica de pacientes"
+    },
+    "/exercises/{exerciseId}": {
+      "schema": "CustomExercise",
+      "description": "Colección de ejercicios clínicos de la biblioteca"
+    },
+    "/plantillas/{plantillaId}": {
+      "schema": "CustomTemplate",
+      "description": "Colección de plantillas rápidas de prescripción"
+    },
+    "/puntofotos/{cod}": {
+      "schema": "PuntoFoto",
+      "description": "Fotos y esquemas de puntos de acupuntura/digitopuntura"
+    }
+  }
+}

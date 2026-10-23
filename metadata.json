@@ -1,0 +1,8 @@
+{
+  "name": "Pautas de Ejercicios · AcupunturaChile",
+  "description": "Aplicación clínica para prescripción de pautas de ejercicios de rehabilitación, digitopuntura anatómica, tamizaje de seguridad y seguimiento funcional.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
