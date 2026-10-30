@@ -22,7 +22,6 @@ export default function App() {
     authError,
     dismissAuthError,
     loginWithGoogle,
-    loginAsClinicalUser,
     logout,
     exercises,
     plans,
@@ -178,7 +177,6 @@ ${emailsList}
       <LoginPage
         currentUser={currentUser}
         onLogin={loginWithGoogle}
-        onLoginAsClinical={loginAsClinicalUser}
         onLogout={logout}
         authError={authError}
         onDismissAuthError={dismissAuthError}
@@ -260,38 +258,7 @@ ${emailsList}
           </div>
         )}
 
-        {/* Clinical local banner with domain authorization helper if cloud is not connected yet */}
-        {!cloudConnected && currentUser && isAuthorized && (
-          <div className="mb-6 bg-sky-50/80 border border-sky-200 text-sky-950 rounded-2xl p-3.5 shadow-xs text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shrink-0" />
-              <div>
-                <p className="font-bold text-sky-950">
-                  Modo Local Equipo Clínico Activo · Profesional: {currentUser.email}
-                </p>
-                <p className="mt-0.5 text-sky-800 text-[11px] leading-relaxed">
-                  Tus pautas y registros se guardan y respaldan en este equipo. Para habilitar sincronización en tiempo real en la nube Firebase, autoriza el dominio en Firebase Console.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              <button
-                type="button"
-                onClick={handleCopyHost}
-                className="px-3 py-1.5 bg-white hover:bg-sky-100 text-sky-800 font-bold border border-sky-300 rounded-xl cursor-pointer text-[11px] shadow-2xs transition-colors flex items-center gap-1"
-              >
-                {copiedHost ? '✓ ¡Dominio Copiado!' : `📋 Copiar Dominio (${typeof window !== 'undefined' ? window.location.hostname : 'run.app'})`}
-              </button>
-              <button
-                type="button"
-                onClick={loginWithGoogle}
-                className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl cursor-pointer text-[11px] shadow-2xs transition-colors"
-              >
-                Conectar con Google
-              </button>
-            </div>
-          </div>
-        )}
+
 
         {viewingPlan ? (
           <PlanSheetModal

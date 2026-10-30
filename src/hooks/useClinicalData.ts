@@ -38,14 +38,7 @@ function localSet<T>(key: string, val: T): void {
 }
 
 export function useClinicalData() {
-  const [currentUser, setCurrentUser] = useState<AppUser | User | null>(() => {
-    if (auth.currentUser) return auth.currentUser;
-    const stored = localGet<AppUser | null>('pautas_clinical_user', null);
-    if (stored && stored.email && isAuthorizedEmail(stored.email)) {
-      return stored;
-    }
-    return null;
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [cloudConnected, setCloudConnected] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -55,23 +48,15 @@ export function useClinicalData() {
     setAuthError(null);
     try {
       const user = await loginWithGoogle();
-      if (user && user.email) {
-        const appUser: AppUser = {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || user.email.split('@')[0],
-          photoURL: user.photoURL,
-          isFirebaseUser: true
-        };
-        localSet('pautas_clinical_user', appUser);
+      if (user) {
         setCurrentUser(user);
       }
     } catch (err: unknown) {
       const e = err as { code?: string; message?: string };
-      if (e?.code === 'auth/unauthorized-domain') {
-        const host = typeof window !== 'undefined' ? window.location.hostname : 'run.app';
+      if (e?.code === 'auth/unauthorized-domain' || e?.message?.includes('unauthorized-domain')) {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'apppautas.vercel.app';
         setAuthError(
-          `Firebase bloqueó la ventana de Google porque el dominio "${host}" no está en los Dominios Autorizados de tu proyecto en Firebase Console. Puedes autorizarlo en Firebase Console o usar el "Acceso Rápido del Equipo Clínico" para ingresar de inmediato.`
+          `Firebase bloqueó el inicio de sesión porque el dominio "${host}" no está en los Dominios Autorizados de tu proyecto en Firebase Console. Agrégalo en Firebase Console > Authentication > Settings.`
         );
       } else if (e?.code === 'auth/popup-closed-by-user') {
         // user closed popup
@@ -79,23 +64,6 @@ export function useClinicalData() {
         setAuthError(e?.message || 'Error al iniciar sesión con Google.');
       }
     }
-  };
-
-  const loginAsClinicalUser = (email: string) => {
-    const trimmed = email.trim().toLowerCase();
-    if (!isAuthorizedEmail(trimmed)) {
-      setAuthError(`El correo ${trimmed} no figura en la nómina de profesionales autorizados.`);
-      return;
-    }
-    const appUser: AppUser = {
-      uid: 'cli_' + trimmed.replace(/[^a-z0-9]/g, '_'),
-      email: trimmed,
-      displayName: trimmed.split('@')[0],
-      isFirebaseUser: false
-    };
-    localSet('pautas_clinical_user', appUser);
-    setCurrentUser(appUser);
-    setAuthError(null);
   };
 
   const handleLogout = async () => {
@@ -146,16 +114,7 @@ export function useClinicalData() {
   // Subscribe to Auth changes
   useEffect(() => {
     const unsubAuth = subscribeAuth(user => {
-      if (user) {
-        setCurrentUser(user);
-      } else {
-        const stored = localGet<AppUser | null>('pautas_clinical_user', null);
-        if (stored && stored.email && isAuthorizedEmail(stored.email)) {
-          setCurrentUser(stored);
-        } else {
-          setCurrentUser(null);
-        }
-      }
+      setCurrentUser(user);
       setAuthLoading(false);
     });
     return () => unsubAuth();
@@ -508,7 +467,6 @@ export function useClinicalData() {
     authError,
     dismissAuthError: () => setAuthError(null),
     loginWithGoogle: handleLogin,
-    loginAsClinicalUser,
     logout: handleLogout,
     exercises,
     plans,

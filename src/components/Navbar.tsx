@@ -101,11 +101,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             ) : (
               <span
-                title="Modo local (localStorage)"
+                title="Conectando con Firebase Firestore"
                 className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200"
               >
                 <Cloud className="w-3.5 h-3.5 text-slate-400" />
-                <span>Local</span>
+                <span>Nube</span>
               </span>
             )}
 
