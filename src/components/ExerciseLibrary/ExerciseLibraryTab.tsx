@@ -24,6 +24,12 @@ export const ExerciseLibraryTab: React.FC<ExerciseLibraryTabProps> = ({
   const [editingEx, setEditingEx] = useState<Partial<Exercise> | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [formError, setFormError] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
+
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 2500);
+  };
 
   const handleStartCreate = () => {
     setEditingEx({
@@ -44,7 +50,7 @@ export const ExerciseLibraryTab: React.FC<ExerciseLibraryTabProps> = ({
   };
 
   const handleStartEdit = (ex: Exercise) => {
-    setEditingEx({ ...ex });
+    setEditingEx({ ...ex, niveles: { ...ex.niveles } });
     setFormError('');
     setIsEditing(true);
   };
@@ -60,8 +66,10 @@ export const ExerciseLibraryTab: React.FC<ExerciseLibraryTabProps> = ({
       return;
     }
 
+    const isUpdate = Boolean(editingEx.id);
     onSaveExercise({
-      id: editingEx.id,
+      ...(editingEx.id ? { id: editingEx.id } : {}),
+      ...(editingEx.createdAt ? { createdAt: editingEx.createdAt } : {}),
       nombre: editingEx.nombre.trim(),
       categoria: (editingEx.categoria as ExerciseCategory) || 'flexibilidad',
       area: editingEx.area || 'General / cuerpo completo',
@@ -77,6 +85,7 @@ export const ExerciseLibraryTab: React.FC<ExerciseLibraryTabProps> = ({
 
     setIsEditing(false);
     setEditingEx(null);
+    triggerToast(isUpdate ? 'Ejercicio actualizado en biblioteca.' : 'Nuevo ejercicio agregado a la biblioteca.');
   };
 
   const filtered = exercises.filter(ex => {
@@ -95,6 +104,12 @@ export const ExerciseLibraryTab: React.FC<ExerciseLibraryTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2">
+          <span>✓</span> {toastMessage}
+        </div>
+      )}
+
       {/* Top Filter Bar */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <div className="flex-1 flex flex-col sm:flex-row gap-2.5">
@@ -357,7 +372,7 @@ export const ExerciseLibraryTab: React.FC<ExerciseLibraryTabProps> = ({
       {/* Grid of Exercises */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map(ex => {
-          const catDef = CATEGORIES[ex.categoria];
+          const catDef = CATEGORIES[ex.categoria] || CATEGORIES.flexibilidad;
 
           return (
             <div

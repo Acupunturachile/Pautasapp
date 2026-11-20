@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Navbar, ActiveTab } from './components/Navbar';
-import { PlanEditorTab } from './components/PlanEditor/PlanEditorTab';
+import { PlanEditorTab, PlanEditorExternalCommand } from './components/PlanEditor/PlanEditorTab';
 import { ExerciseLibraryTab } from './components/ExerciseLibrary/ExerciseLibraryTab';
 import { DigitopunctureTab } from './components/Digitopuncture/DigitopunctureTab';
 import { TrackingTab } from './components/Tracking/TrackingTab';
@@ -9,6 +9,7 @@ import { PlanSheetModal } from './components/PlanSheet/PlanSheetModal';
 import { LoginPage } from './components/Auth/LoginPage';
 import { useClinicalData } from './hooks/useClinicalData';
 import { ClinicalPlan } from './types/clinical';
+import { DIGITO_GROUPS } from './data/digitopunctureData';
 import { pacKey, todayStr, isAuthorizedEmail, AUTHORIZED_EMAILS, LOGO_DATA_URI } from './utils/clinicalUtils';
 
 export default function App() {
@@ -19,6 +20,8 @@ export default function App() {
     isSyncing,
     permissionNotice,
     dismissPermissionNotice,
+    syncError,
+    dismissSyncError,
     authError,
     dismissAuthError,
     loginWithGoogle,
@@ -42,7 +45,19 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('crear');
   const [viewingPlan, setViewingPlan] = useState<ClinicalPlan | null>(null);
-  const [activeDraft, setActiveDraft] = useState<Partial<ClinicalPlan> | null>(null);
+  const [planSheetSourceTab, setPlanSheetSourceTab] = useState<ActiveTab>('crear');
+  const [trackingPatientKey, setTrackingPatientKey] = useState<string | null>(null);
+  const [planEditorCommand, setPlanEditorCommand] = useState<PlanEditorExternalCommand | null>(null);
+  const commandNonceRef = useRef(0);
+
+  const dispatchEditorCommand = (mode: PlanEditorExternalCommand['mode'], draft: Partial<ClinicalPlan>) => {
+    commandNonceRef.current += 1;
+    setPlanEditorCommand({
+      nonce: commandNonceRef.current,
+      mode,
+      draft
+    });
+  };
 
   // Tab switching
   const handleTabChange = (tab: ActiveTab) => {
@@ -50,14 +65,25 @@ export default function App() {
     setViewingPlan(null);
   };
 
-  // When a plan is created/opened
-  const handleOpenPlan = (plan: ClinicalPlan) => {
+  // Open plan sheet from editor or saved plans
+  const handleOpenPlan = (plan: ClinicalPlan, sourceTab: ActiveTab = activeTab) => {
+    setPlanSheetSourceTab(sourceTab);
     setViewingPlan(plan);
   };
 
-  // Duplicate an existing plan
+  // Edit an existing plan in the builder (updates existing record on save)
+  const handleEditPlan = (plan: ClinicalPlan) => {
+    dispatchEditorCommand('replace', {
+      ...plan,
+      items: plan.items.map(it => ({ ...it }))
+    });
+    setViewingPlan(null);
+    setActiveTab('crear');
+  };
+
+  // Duplicate an existing plan as a new draft
   const handleDuplicatePlan = (plan: ClinicalPlan) => {
-    setActiveDraft({
+    dispatchEditorCommand('replace', {
       paciente: plan.paciente,
       edad: plan.edad,
       sexo: plan.sexo,
@@ -79,12 +105,15 @@ export default function App() {
 
   // Direct create for an existing patient from tracking
   const handleNewPlanForPatient = (patientKey: string) => {
-    const existing = plans.find(p => pacKey(p.paciente) === patientKey);
-    if (existing) {
-      handleDuplicatePlan(existing);
+    const patientPlans = plans
+      .filter(p => pacKey(p.paciente) === patientKey)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (patientPlans.length > 0) {
+      handleDuplicatePlan(patientPlans[0]);
     } else {
-      setActiveDraft({
-        paciente: patientKey,
+      const sesMatch = sesiones.find(s => s.key === patientKey);
+      dispatchEditorCommand('replace', {
+        paciente: sesMatch?.paciente || patientKey,
         fecha: todayStr(),
         items: []
       });
@@ -93,39 +122,37 @@ export default function App() {
     }
   };
 
-  // Jump to tracking from saved plans
+  // Jump to tracking from saved plans with selected patient
   const handleGoToTracking = (patientKey: string) => {
+    setTrackingPatientKey(patientKey);
     setActiveTab('seguimiento');
     setViewingPlan(null);
   };
 
-  // Apply digitopuncture from guide tab to current draft
+  // Apply digitopuncture from guide tab to current live draft without losing existing fields
   const handleApplyDigitoToDraft = (groupId: string, patternId?: string) => {
-    setActiveDraft(prev => ({
-      ...prev,
+    const group = DIGITO_GROUPS.find(g => g.id === groupId);
+    const puntos = group ? group.puntos.slice(0, 3).map(p => ({ ...p })) : [];
+
+    dispatchEditorCommand('patchDigito', {
       digito: {
         grupoId: groupId,
-        puntos: []
+        puntos
       },
-      tcm: patternId
+      ...(patternId
         ? {
-            patron: patternId,
-            lengua: prev?.tcm?.lengua || '',
-            pulso: prev?.tcm?.pulso || ''
+            tcm: {
+              patron: patternId,
+              lengua: '',
+              pulso: ''
+            }
           }
-        : prev?.tcm
-    }));
+        : {})
+    });
     setActiveTab('crear');
   };
 
   const [copiedRules, setCopiedRules] = useState(false);
-  const [copiedHost, setCopiedHost] = useState(false);
-
-  const handleCopyHost = () => {
-    navigator.clipboard.writeText(window.location.hostname);
-    setCopiedHost(true);
-    setTimeout(() => setCopiedHost(false), 3000);
-  };
 
   const handleCopyRules = () => {
     const emailsList = AUTHORIZED_EMAILS.map(e => `          '${e}'`).join(',\n');
@@ -169,7 +196,6 @@ ${emailsList}
   }
 
   // 2. Initial Login Page Gate
-  // If not logged in or logged in with an unauthorized email, display the Login screen exclusively
   const isAuthorized = currentUser && isAuthorizedEmail(currentUser.email);
 
   if (!currentUser || !isAuthorized) {
@@ -184,7 +210,7 @@ ${emailsList}
     );
   }
 
-  // 3. Full System Interface (only accessible after successful authorized login)
+  // 3. Full System Interface
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       <Navbar
@@ -204,14 +230,36 @@ ${emailsList}
           <div className="mb-6 bg-red-50 border border-red-200 text-red-900 rounded-2xl p-4 shadow-xs text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
               <p className="font-bold text-sm text-red-950">
-                Dominio pendiente de autorizar en Firebase
+                Aviso de autenticación
               </p>
               <p className="mt-1 text-red-800 leading-relaxed">
                 {authError}
               </p>
             </div>
             <button
+              type="button"
               onClick={dismissAuthError}
+              className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-800 font-bold rounded-xl shrink-0 cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+        )}
+
+        {/* Firestore sync error banner */}
+        {syncError && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-900 rounded-2xl p-4 shadow-xs text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-sm text-red-950">
+                Error al sincronizar datos en la nube
+              </p>
+              <p className="mt-1 text-red-800 leading-relaxed">
+                {syncError}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissSyncError}
               className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-800 font-bold rounded-xl shrink-0 cursor-pointer"
             >
               Cerrar
@@ -258,69 +306,68 @@ ${emailsList}
           </div>
         )}
 
-
-
-        {viewingPlan ? (
+        {viewingPlan && (
           <PlanSheetModal
             plan={viewingPlan}
             puntoFotos={puntoFotos}
+            backLabel={planSheetSourceTab === 'guardadas' ? '← Volver a Guardadas' : '← Volver a Editar'}
             onClose={() => setViewingPlan(null)}
+            onEditPlan={planSheetSourceTab === 'guardadas' ? handleEditPlan : undefined}
           />
-        ) : (
-          <>
-            {activeTab === 'crear' && (
-              <PlanEditorTab
-                key={activeDraft ? JSON.stringify(activeDraft) : 'fresh'}
-                exercises={exercises}
-                puntoFotos={puntoFotos}
-                misPlantillas={misPlantillas}
-                onSavePlan={savePlan}
-                onSavePlantilla={savePlantilla}
-                onDeletePlantilla={deletePlantilla}
-                onSavePuntoFoto={savePuntoFoto}
-                onDeletePuntoFoto={deletePuntoFoto}
-                onOpenGeneratedPlan={handleOpenPlan}
-                initialDraft={activeDraft}
-              />
-            )}
+        )}
 
-            {activeTab === 'biblioteca' && (
-              <ExerciseLibraryTab
-                exercises={exercises}
-                onSaveExercise={saveExercise}
-                onDeleteExercise={deleteExercise}
-              />
-            )}
+        {/* Keep PlanEditorTab mounted so draft data is preserved across tab switches */}
+        <div className={!viewingPlan && activeTab === 'crear' ? '' : 'hidden'}>
+          <PlanEditorTab
+            exercises={exercises}
+            puntoFotos={puntoFotos}
+            misPlantillas={misPlantillas}
+            onSavePlan={savePlan}
+            onSavePlantilla={savePlantilla}
+            onDeletePlantilla={deletePlantilla}
+            onSavePuntoFoto={savePuntoFoto}
+            onDeletePuntoFoto={deletePuntoFoto}
+            onOpenGeneratedPlan={plan => handleOpenPlan(plan, 'crear')}
+            externalCommand={planEditorCommand}
+          />
+        </div>
 
-            {activeTab === 'digito' && (
-              <DigitopunctureTab
-                puntoFotos={puntoFotos}
-                onSavePuntoFoto={savePuntoFoto}
-                onDeletePuntoFoto={deletePuntoFoto}
-                onApplyToCurrentDraft={handleApplyDigitoToDraft}
-              />
-            )}
+        {!viewingPlan && activeTab === 'biblioteca' && (
+          <ExerciseLibraryTab
+            exercises={exercises}
+            onSaveExercise={saveExercise}
+            onDeleteExercise={deleteExercise}
+          />
+        )}
 
-            {activeTab === 'seguimiento' && (
-              <TrackingTab
-                plans={plans}
-                sesiones={sesiones}
-                onSaveSesion={saveSesion}
-                onDeleteSesion={deleteSesion}
-                onNewPlanForPatient={handleNewPlanForPatient}
-              />
-            )}
+        {!viewingPlan && activeTab === 'digito' && (
+          <DigitopunctureTab
+            puntoFotos={puntoFotos}
+            onSavePuntoFoto={savePuntoFoto}
+            onDeletePuntoFoto={deletePuntoFoto}
+            onApplyToCurrentDraft={handleApplyDigitoToDraft}
+          />
+        )}
 
-            {activeTab === 'guardadas' && (
-              <SavedPlansTab
-                plans={plans}
-                onOpenPlan={handleOpenPlan}
-                onDuplicatePlan={handleDuplicatePlan}
-                onGoToTracking={handleGoToTracking}
-                onDeletePlan={deletePlan}
-              />
-            )}
-          </>
+        {!viewingPlan && activeTab === 'seguimiento' && (
+          <TrackingTab
+            plans={plans}
+            sesiones={sesiones}
+            initialPatientKey={trackingPatientKey}
+            onSaveSesion={saveSesion}
+            onDeleteSesion={deleteSesion}
+            onNewPlanForPatient={handleNewPlanForPatient}
+          />
+        )}
+
+        {!viewingPlan && activeTab === 'guardadas' && (
+          <SavedPlansTab
+            plans={plans}
+            onOpenPlan={plan => handleOpenPlan(plan, 'guardadas')}
+            onDuplicatePlan={handleDuplicatePlan}
+            onGoToTracking={handleGoToTracking}
+            onDeletePlan={deletePlan}
+          />
         )}
       </main>
     </div>

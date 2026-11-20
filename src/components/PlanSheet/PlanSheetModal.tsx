@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ClinicalPlan } from '../../types/clinical';
 import { CATEGORIES, LEVEL_LABEL } from '../../data/seedExercises';
 import { ExerciseIconBadge } from '../../data/exerciseIcons';
@@ -13,20 +13,33 @@ import { TCM_PATRONES } from '../../data/tcmPatternsData';
 import {
   LOGO_DATA_URI,
   generateStandaloneMobileHtml,
+  planToWhatsAppText,
   ytExerciseUrl
 } from '../../utils/clinicalUtils';
+
+const PROG_DESCRIPTIONS: Record<string, string> = {
+  sube2: 'Cada 2 semanas, si realiza la pauta sin dolor (EVA 0-2), avance un nivel de carga.',
+  sube1: 'Cada semana, si realiza la pauta sin dolor (EVA 0-2), avance un nivel de carga.',
+  mantener: 'Mantenga el nivel de carga indicado durante las 4 semanas.'
+};
 
 interface PlanSheetModalProps {
   plan: ClinicalPlan;
   puntoFotos: Record<string, string>;
   onClose: () => void;
+  onEditPlan?: (plan: ClinicalPlan) => void;
+  backLabel?: string;
 }
 
 export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
   plan,
   puntoFotos,
-  onClose
+  onClose,
+  onEditPlan,
+  backLabel = '← Volver a Editar'
 }) => {
+  const [copiedWa, setCopiedWa] = useState(false);
+
   const handleDownloadMobileHtml = () => {
     const htmlContent = generateStandaloneMobileHtml(plan, puntoFotos);
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
@@ -40,6 +53,36 @@ export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleCopyWhatsApp = async () => {
+    const text = planToWhatsAppText(plan);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedWa(true);
+      setTimeout(() => setCopiedWa(false), 2500);
+    } catch {
+      // Fallback for restricted clipboard contexts
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        setCopiedWa(true);
+        setTimeout(() => setCopiedWa(false), 2500);
+      } finally {
+        document.body.removeChild(ta);
+      }
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(planToWhatsAppText(plan))}`;
+
   // Group items by category
   const byCat: Record<string, typeof plan.items> = {
     flexibilidad: [],
@@ -47,7 +90,11 @@ export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
     aerobico: []
   };
   plan.items.forEach(it => {
-    if (byCat[it.categoria]) byCat[it.categoria].push(it);
+    if (byCat[it.categoria]) {
+      byCat[it.categoria].push(it);
+    } else {
+      byCat.flexibilidad.push(it);
+    }
   });
 
   const tcmPatternObj = plan.tcm?.patron ? TCM_PATRONES.find(p => p.id === plan.tcm?.patron) : null;
@@ -57,17 +104,59 @@ export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
     <div className="space-y-6">
       {/* Action Toolbar */}
       <div className="no-print bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3 sticky top-16 z-30">
-        <button
-          onClick={onClose}
-          className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
-        >
-          <span>← Volver a Editar</span>
-        </button>
-
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
+            type="button"
+            onClick={onClose}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            <span>{backLabel}</span>
+          </button>
+
+          {onEditPlan && (
+            <button
+              type="button"
+              onClick={() => onEditPlan(plan)}
+              className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs rounded-xl border border-blue-200/80 transition-colors cursor-pointer"
+            >
+              ✎ Editar Pauta
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Imprimir o guardar como PDF desde el navegador"
+          >
+            <span>🖨️ Imprimir / PDF</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopyWhatsApp}
+            className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold text-xs rounded-xl border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Copia el resumen formateado para pegarlo en WhatsApp"
+          >
+            <span>{copiedWa ? '✓ Texto Copiado' : '📋 Copiar WhatsApp'}</span>
+          </button>
+
+          <a
+            href={whatsappShareUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+            title="Abrir WhatsApp con la pauta lista para enviar"
+          >
+            <span>💬 Enviar WhatsApp</span>
+          </a>
+
+          <button
+            type="button"
             onClick={handleDownloadMobileHtml}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-2"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
             title="Descarga un archivo interactivo autónomo que funciona sin internet en el celular del paciente"
           >
             <span>📱 Descargar para Celular</span>
@@ -152,6 +241,15 @@ export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
               {plan.frecuencia || 3} días por semana
             </span>
           </div>
+
+          {plan.condicionMedica && (
+            <div className="sm:col-span-3">
+              <span className="font-bold text-slate-500 block uppercase text-[10px] tracking-wider">
+                Antecedente / Precaución Médica
+              </span>
+              <span className="font-medium text-slate-800">{plan.condicionMedica}</span>
+            </div>
+          )}
         </div>
 
         {/* Exercise Items Categorized */}
@@ -183,7 +281,7 @@ export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
                             {idx + 1}. {it.nombre}
                           </span>
                           <span className="text-xs font-bold text-blue-700 bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                            {LEVEL_LABEL[it.nivel]}
+                            {LEVEL_LABEL[it.nivel] || LEVEL_LABEL.bajo}
                           </span>
                         </div>
 
@@ -197,7 +295,7 @@ export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
                           </p>
                         )}
 
-                        <div className="pt-1">
+                        <div className="pt-1 no-print">
                           <a
                             href={ytExerciseUrl(it.nombre)}
                             target="_blank"
@@ -234,7 +332,9 @@ export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
             Planificación y Registro de Cumplimiento (4 Semanas)
           </h2>
           <p className="text-xs text-slate-600">
-            Realice los ejercicios <b>{plan.frecuencia || 3} días por semana</b>, respetando al menos 24 horas de descanso entre sesiones de fortalecimiento. Registre su cumplimiento diario y califique su nivel de dolor al finalizar cada semana.
+            Realice los ejercicios <b>{plan.frecuencia || 3} días por semana</b>, respetando al menos 24 horas de descanso entre sesiones de fortalecimiento.{' '}
+            {PROG_DESCRIPTIONS[plan.progModo] || PROG_DESCRIPTIONS.sube2}{' '}
+            Registre su cumplimiento diario y califique su nivel de dolor al finalizar cada semana.
           </p>
 
           <div className="overflow-x-auto">
@@ -346,7 +446,7 @@ export const PlanSheetModal: React.FC<PlanSheetModalProps> = ({
                       href={ytPointUrl(pt)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[11px] font-semibold text-purple-700 hover:text-purple-800 inline-flex items-center gap-1"
+                      className="no-print text-[11px] font-semibold text-purple-700 hover:text-purple-800 inline-flex items-center gap-1"
                     >
                       <span>▶ Video de ubicación</span>
                     </a>

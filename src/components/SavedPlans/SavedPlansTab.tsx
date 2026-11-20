@@ -34,14 +34,9 @@ export const SavedPlansTab: React.FC<SavedPlansTabProps> = ({
       map[k].plans.push(p);
     });
 
-    // Sort each patient's plans chronologically
+    // Sort each patient's plans chronologically (oldest to newest)
     Object.values(map).forEach(group => {
-      group.plans.sort((a, b) => {
-        if (a.fecha === b.fecha) {
-          return (a.createdAt || 0) - (b.createdAt || 0);
-        }
-        return a.fecha.localeCompare(b.fecha);
-      });
+      group.plans.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     });
 
     return map;
@@ -82,12 +77,14 @@ export const SavedPlansTab: React.FC<SavedPlansTabProps> = ({
 
   // Grouped array for the 'grouped' view mode
   const patientGroups = useMemo(() => {
-    const groups = Object.entries(patientHistoryMap).map(([key, data]) => ({
-      key,
-      patientName: data.patientName,
-      plans: data.plans,
-      latestPlan: data.plans[data.plans.length - 1]
-    }));
+    const groups = Object.entries(patientHistoryMap)
+      .map(([key, data]) => ({
+        key,
+        patientName: data.patientName,
+        plans: data.plans,
+        latestPlan: data.plans[data.plans.length - 1]
+      }))
+      .sort((a, b) => a.patientName.localeCompare(b.patientName, 'es'));
 
     if (!searchTerm.trim()) return groups;
     const q = searchTerm.toLowerCase();

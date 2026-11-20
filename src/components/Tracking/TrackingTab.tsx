@@ -12,6 +12,7 @@ import {
 interface TrackingTabProps {
   plans: ClinicalPlan[];
   sesiones: TrackingSession[];
+  initialPatientKey?: string | null;
   onSaveSesion: (ses: Omit<TrackingSession, 'id'> & { id?: string }) => void;
   onDeleteSesion: (id: string) => void;
   onNewPlanForPatient: (patientKey: string) => void;
@@ -20,6 +21,7 @@ interface TrackingTabProps {
 export const TrackingTab: React.FC<TrackingTabProps> = ({
   plans,
   sesiones,
+  initialPatientKey,
   onSaveSesion,
   onDeleteSesion,
   onNewPlanForPatient
@@ -38,12 +40,25 @@ export const TrackingTab: React.FC<TrackingTabProps> = ({
   }, [plans, sesiones]);
 
   const [selectedPatientKey, setSelectedPatientKey] = useState<string>(() => {
+    if (initialPatientKey && patientsMap.some(p => p.key === initialPatientKey)) {
+      return initialPatientKey;
+    }
     return patientsMap.length > 0 ? patientsMap[0].key : '';
   });
 
-  // Keep selected patient valid if list changes
+  // Sync when navigated from SavedPlansTab with a specific patient
   React.useEffect(() => {
-    if (!selectedPatientKey && patientsMap.length > 0) {
+    if (initialPatientKey && patientsMap.some(p => p.key === initialPatientKey)) {
+      setSelectedPatientKey(initialPatientKey);
+      setSelectedInstrumentFilter('');
+    }
+  }, [initialPatientKey, patientsMap]);
+
+  // Keep selected patient valid if list changes (e.g., last plan deleted)
+  React.useEffect(() => {
+    if (patientsMap.length === 0) {
+      if (selectedPatientKey !== '') setSelectedPatientKey('');
+    } else if (!patientsMap.some(p => p.key === selectedPatientKey)) {
       setSelectedPatientKey(patientsMap[0].key);
     }
   }, [patientsMap, selectedPatientKey]);
@@ -781,6 +796,7 @@ function SimpleSvgLineChart({
                 fill="transparent"
                 className="cursor-pointer"
                 onMouseEnter={() => setHoverIndex(i)}
+                onClick={() => setHoverIndex(prev => (prev === i ? null : i))}
               />
             </g>
           );

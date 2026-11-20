@@ -7,7 +7,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { User } from 'firebase/auth';
-import { Exercise, ClinicalPlan, TrackingSession, CustomTemplate, AppUser } from '../types/clinical';
+import { Exercise, ClinicalPlan, TrackingSession, CustomTemplate } from '../types/clinical';
 import { SEED_EXERCISES } from '../data/seedExercises';
 import { uid, isAuthorizedEmail } from '../utils/clinicalUtils';
 import {
@@ -24,7 +24,7 @@ function localGet<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
     return v ? JSON.parse(v) : fallback;
-  } catch (e) {
+  } catch {
     return fallback;
   }
 }
@@ -32,9 +32,29 @@ function localGet<T>(key: string, fallback: T): T {
 function localSet<T>(key: string, val: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(val));
-  } catch (e) {
+  } catch {
     // quota exceeded or blocked
   }
+}
+
+/**
+ * Recursively removes keys with `undefined` values because Firestore `setDoc`
+ * rejects payloads containing `undefined`.
+ */
+function sanitizeForFirestore<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(item => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const clean: Record<string, unknown> = {};
+    Object.entries(value as Record<string, unknown>).forEach(([key, val]) => {
+      if (val !== undefined) {
+        clean[key] = sanitizeForFirestore(val);
+      }
+    });
+    return clean as T;
+  }
+  return value;
 }
 
 export function useClinicalData() {
@@ -43,6 +63,8 @@ export function useClinicalData() {
   const [cloudConnected, setCloudConnected] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [permissionNotice, setPermissionNotice] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const handleLogin = async () => {
     setAuthError(null);
@@ -58,7 +80,11 @@ export function useClinicalData() {
         setAuthError(
           `Firebase bloqueó el inicio de sesión porque el dominio "${host}" no está en los Dominios Autorizados de tu proyecto en Firebase Console. Agrégalo en Firebase Console > Authentication > Settings.`
         );
-      } else if (e?.code === 'auth/popup-closed-by-user') {
+      } else if (e?.code === 'auth/popup-blocked') {
+        setAuthError(
+          'El navegador bloqueó la ventana emergente de Google. Permite las ventanas emergentes (pop-ups) para este sitio e intenta nuevamente.'
+        );
+      } else if (e?.code === 'auth/popup-closed-by-user' || e?.code === 'auth/cancelled-popup-request') {
         // user closed popup
       } else {
         setAuthError(e?.message || 'Error al iniciar sesión con Google.');
@@ -69,17 +95,19 @@ export function useClinicalData() {
   const handleLogout = async () => {
     try {
       await logout();
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       localStorage.removeItem('pautas_clinical_user');
-    } catch (e) {
+    } catch {
       // ignore
     }
     setCurrentUser(null);
     setCloudConnected(false);
     setIsSyncing(false);
+    setPermissionNotice(false);
+    setSyncError(null);
   };
 
   // Local state with localStorage as resilient initial cache
@@ -109,7 +137,17 @@ export function useClinicalData() {
     return localGet<CustomTemplate[]>('pautas_plantillas', []);
   });
 
+  // Refs to access current state cleanly inside snapshot callbacks without stale closures
+  const exercisesRef = useRef(exercises);
+  exercisesRef.current = exercises;
+  const plansRef = useRef(plans);
+  plansRef.current = plans;
+  const sesionesRef = useRef(sesiones);
+  sesionesRef.current = sesiones;
+
   const exercisesSeededRef = useRef(false);
+  const plansSyncedOnceRef = useRef(false);
+  const sesionesSyncedOnceRef = useRef(false);
 
   // Subscribe to Auth changes
   useEffect(() => {
@@ -141,31 +179,39 @@ export function useClinicalData() {
     localSet('pautas_plantillas', misPlantillas);
   }, [misPlantillas]);
 
-  const [permissionNotice, setPermissionNotice] = useState<boolean>(false);
-
   const reportIssue = (err: unknown, op: OperationType, path: string | null) => {
-    setCloudConnected(false);
     setIsSyncing(false);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('Missing or insufficient permissions') || msg.includes('permission-denied')) {
+      setCloudConnected(false);
       setPermissionNotice(true);
+    } else if (msg.includes('Quota exceeded')) {
+      setSyncError('Se alcanzó el límite diario gratuito de Firestore. Los cambios permanecen guardados localmente.');
+    } else {
+      setSyncError(`Error de sincronización en Firestore (${path || op}): ${msg}`);
     }
     try {
       handleFirestoreError(err, op, path);
-    } catch (e) {
-      // Formatted error recorded as required by Firebase diagnostics without throwing uncaught
+    } catch {
+      // Formatted error logged by handleFirestoreError without crashing the UI
     }
   };
 
-  // Real-time Firestore Subscriptions (active only when authenticated in Firebase Auth)
+  // Real-time Firestore Subscriptions (active only when an authorized clinical user is signed in)
   useEffect(() => {
-    if (!auth.currentUser) {
+    if (!currentUser || !isAuthorizedEmail(currentUser.email)) {
       setIsSyncing(false);
       setCloudConnected(false);
+      plansSyncedOnceRef.current = false;
+      sesionesSyncedOnceRef.current = false;
       return;
     }
 
     setIsSyncing(true);
+    setPermissionNotice(false);
+    setSyncError(null);
+
+    const alreadyMigrated = localGet<string>('pautas_cloud_migrated', '') === '1';
 
     // 1. Plans Collection
     const plansCol = collection(db, 'plans');
@@ -176,18 +222,30 @@ export function useClinicalData() {
         snapshot.forEach(docSnap => {
           remotePlans.push({ ...(docSnap.data() as ClinicalPlan), id: docSnap.id });
         });
-
-        // Sort by createdAt or date descending
         remotePlans.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-        if (remotePlans.length > 0) {
-          setPlans(remotePlans);
-        } else if (plans.length > 0) {
-          plans.forEach(p => {
-            setDoc(doc(db, 'plans', p.id), p).catch(err => {
-              reportIssue(err, OperationType.WRITE, `plans/${p.id}`);
+        if (
+          !plansSyncedOnceRef.current &&
+          remotePlans.length === 0 &&
+          plansRef.current.length > 0 &&
+          !alreadyMigrated &&
+          !snapshot.metadata.fromCache
+        ) {
+          plansSyncedOnceRef.current = true;
+          plansRef.current.forEach(p => {
+            const pid = p.id || uid();
+            const clean = sanitizeForFirestore({ ...p, id: pid });
+            setDoc(doc(db, 'plans', pid), clean).catch(err => {
+              reportIssue(err, OperationType.WRITE, `plans/${pid}`);
             });
           });
+        } else {
+          plansSyncedOnceRef.current = true;
+          setPlans(remotePlans);
+        }
+
+        if (!snapshot.metadata.fromCache) {
+          localSet('pautas_cloud_migrated', '1');
         }
         setCloudConnected(true);
         setIsSyncing(false);
@@ -208,13 +266,24 @@ export function useClinicalData() {
           remoteSes.push({ ...(docSnap.data() as TrackingSession), id: docSnap.id });
         });
 
-        if (remoteSes.length > 0) {
-          setSesiones(remoteSes);
-        } else if (sesiones.length > 0) {
-          sesiones.forEach(s => {
+        if (
+          !sesionesSyncedOnceRef.current &&
+          remoteSes.length === 0 &&
+          sesionesRef.current.length > 0 &&
+          !alreadyMigrated &&
+          !snapshot.metadata.fromCache
+        ) {
+          sesionesSyncedOnceRef.current = true;
+          sesionesRef.current.forEach(s => {
             const sid = s.id || uid();
-            setDoc(doc(db, 'sesiones', sid), { ...s, id: sid }).catch(() => {});
+            const clean = sanitizeForFirestore({ ...s, id: sid });
+            setDoc(doc(db, 'sesiones', sid), clean).catch(err => {
+              reportIssue(err, OperationType.WRITE, `sesiones/${sid}`);
+            });
           });
+        } else {
+          sesionesSyncedOnceRef.current = true;
+          setSesiones(remoteSes);
         }
       },
       error => {
@@ -233,15 +302,23 @@ export function useClinicalData() {
         });
 
         if (remoteEx.length > 0) {
-          setExercises(remoteEx);
-        } else if (!exercisesSeededRef.current) {
           exercisesSeededRef.current = true;
-          // Seed the catalog to Firestore
-          exercises.forEach(ex => {
-            setDoc(doc(db, 'exercises', ex.id), ex).catch(err => {
-              reportIssue(err, OperationType.WRITE, `exercises/${ex.id}`);
+          setExercises(remoteEx);
+        } else if (!exercisesSeededRef.current && !snapshot.metadata.fromCache) {
+          exercisesSeededRef.current = true;
+          const seedList =
+            exercisesRef.current.length > 0
+              ? exercisesRef.current
+              : SEED_EXERCISES.map(e => ({ ...e, id: uid(), createdAt: Date.now() }));
+          seedList.forEach(ex => {
+            const eid = ex.id || uid();
+            const clean = sanitizeForFirestore({ ...ex, id: eid });
+            setDoc(doc(db, 'exercises', eid), clean).catch(err => {
+              reportIssue(err, OperationType.WRITE, `exercises/${eid}`);
             });
           });
+        } else if (exercisesSeededRef.current) {
+          setExercises(remoteEx);
         }
       },
       error => {
@@ -258,9 +335,7 @@ export function useClinicalData() {
         snapshot.forEach(docSnap => {
           remotePlt.push({ ...(docSnap.data() as CustomTemplate), id: docSnap.id });
         });
-        if (remotePlt.length > 0) {
-          setMisPlantillas(remotePlt);
-        }
+        setMisPlantillas(remotePlt);
       },
       error => {
         reportIssue(error, OperationType.LIST, 'plantillas');
@@ -279,9 +354,7 @@ export function useClinicalData() {
             map[d.cod] = d.dataUrl;
           }
         });
-        if (Object.keys(map).length > 0) {
-          setPuntoFotos(map);
-        }
+        setPuntoFotos(map);
       },
       error => {
         reportIssue(error, OperationType.LIST, 'puntofotos');
@@ -297,16 +370,18 @@ export function useClinicalData() {
     };
   }, [currentUser]);
 
+  const canWriteCloud = () =>
+    Boolean(auth.currentUser && isAuthorizedEmail(auth.currentUser.email));
+
   // CRUD Operations with Firestore + Optimistic Local UI
   const savePlan = (plan: Omit<ClinicalPlan, 'id'> & { id?: string }) => {
     const finalId = plan.id || uid();
-    const newPlan: ClinicalPlan = {
+    const newPlan: ClinicalPlan = sanitizeForFirestore({
       ...plan,
       id: finalId,
       createdAt: plan.createdAt || Date.now()
-    };
+    });
 
-    // Optimistic local update
     setPlans(prev => {
       const idx = prev.findIndex(p => p.id === finalId);
       if (idx >= 0) {
@@ -317,8 +392,7 @@ export function useClinicalData() {
       return [newPlan, ...prev];
     });
 
-    // Firestore async persist if real Firebase user is authenticated
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       setDoc(doc(db, 'plans', finalId), newPlan).catch(err => {
         reportIssue(err, OperationType.WRITE, `plans/${finalId}`);
       });
@@ -329,7 +403,7 @@ export function useClinicalData() {
 
   const deletePlan = (id: string) => {
     setPlans(prev => prev.filter(p => p.id !== id));
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       deleteDoc(doc(db, 'plans', id)).catch(err => {
         reportIssue(err, OperationType.DELETE, `plans/${id}`);
       });
@@ -338,11 +412,11 @@ export function useClinicalData() {
 
   const saveSesion = (ses: Omit<TrackingSession, 'id'> & { id?: string }) => {
     const finalId = ses.id || uid();
-    const newSes: TrackingSession = {
+    const newSes: TrackingSession = sanitizeForFirestore({
       ...ses,
       id: finalId,
       createdAt: ses.createdAt || Date.now()
-    };
+    });
 
     setSesiones(prev => {
       const idx = prev.findIndex(s => s.id === finalId);
@@ -354,7 +428,7 @@ export function useClinicalData() {
       return [...prev, newSes];
     });
 
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       setDoc(doc(db, 'sesiones', finalId), newSes).catch(err => {
         reportIssue(err, OperationType.WRITE, `sesiones/${finalId}`);
       });
@@ -365,7 +439,7 @@ export function useClinicalData() {
 
   const deleteSesion = (id: string) => {
     setSesiones(prev => prev.filter(s => s.id !== id));
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       deleteDoc(doc(db, 'sesiones', id)).catch(err => {
         reportIssue(err, OperationType.DELETE, `sesiones/${id}`);
       });
@@ -374,11 +448,11 @@ export function useClinicalData() {
 
   const saveExercise = (ex: Omit<Exercise, 'id'> & { id?: string }) => {
     const finalId = ex.id || uid();
-    const newEx: Exercise = {
+    const newEx: Exercise = sanitizeForFirestore({
       ...ex,
       id: finalId,
       createdAt: ex.createdAt || Date.now()
-    };
+    });
 
     setExercises(prev => {
       const idx = prev.findIndex(e => e.id === finalId);
@@ -390,7 +464,7 @@ export function useClinicalData() {
       return [newEx, ...prev];
     });
 
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       setDoc(doc(db, 'exercises', finalId), newEx).catch(err => {
         reportIssue(err, OperationType.WRITE, `exercises/${finalId}`);
       });
@@ -401,7 +475,7 @@ export function useClinicalData() {
 
   const deleteExercise = (id: string) => {
     setExercises(prev => prev.filter(e => e.id !== id));
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       deleteDoc(doc(db, 'exercises', id)).catch(err => {
         reportIssue(err, OperationType.DELETE, `exercises/${id}`);
       });
@@ -409,26 +483,27 @@ export function useClinicalData() {
   };
 
   const savePlantilla = (plt: CustomTemplate) => {
+    const cleanPlt = sanitizeForFirestore(plt);
     setMisPlantillas(prev => {
-      const idx = prev.findIndex(p => p.id === plt.id);
+      const idx = prev.findIndex(p => p.id === cleanPlt.id);
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = plt;
+        copy[idx] = cleanPlt;
         return copy;
       }
-      return [...prev, plt];
+      return [...prev, cleanPlt];
     });
 
-    if (auth.currentUser) {
-      setDoc(doc(db, 'plantillas', plt.id), plt).catch(err => {
-        reportIssue(err, OperationType.WRITE, `plantillas/${plt.id}`);
+    if (canWriteCloud()) {
+      setDoc(doc(db, 'plantillas', cleanPlt.id), cleanPlt).catch(err => {
+        reportIssue(err, OperationType.WRITE, `plantillas/${cleanPlt.id}`);
       });
     }
   };
 
   const deletePlantilla = (id: string) => {
     setMisPlantillas(prev => prev.filter(p => p.id !== id));
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       deleteDoc(doc(db, 'plantillas', id)).catch(err => {
         reportIssue(err, OperationType.DELETE, `plantillas/${id}`);
       });
@@ -437,7 +512,7 @@ export function useClinicalData() {
 
   const savePuntoFoto = (cod: string, dataUrl: string) => {
     setPuntoFotos(prev => ({ ...prev, [cod]: dataUrl }));
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       setDoc(doc(db, 'puntofotos', cod), { cod, dataUrl }).catch(err => {
         reportIssue(err, OperationType.WRITE, `puntofotos/${cod}`);
       });
@@ -450,7 +525,7 @@ export function useClinicalData() {
       delete copy[cod];
       return copy;
     });
-    if (auth.currentUser) {
+    if (canWriteCloud()) {
       deleteDoc(doc(db, 'puntofotos', cod)).catch(err => {
         reportIssue(err, OperationType.DELETE, `puntofotos/${cod}`);
       });
@@ -464,6 +539,8 @@ export function useClinicalData() {
     isSyncing,
     permissionNotice,
     dismissPermissionNotice: () => setPermissionNotice(false),
+    syncError,
+    dismissSyncError: () => setSyncError(null),
     authError,
     dismissAuthError: () => setAuthError(null),
     loginWithGoogle: handleLogin,

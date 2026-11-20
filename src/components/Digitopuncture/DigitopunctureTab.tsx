@@ -251,6 +251,7 @@ export const DigitopunctureTab: React.FC<DigitopunctureTabProps> = ({
                       onChange={e => {
                         const file = e.target.files?.[0];
                         if (file) handleUploadPhoto(pt.cod, file);
+                        e.target.value = '';
                       }}
                     />
                   </label>

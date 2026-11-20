@@ -38,6 +38,12 @@ const PROG_MODOS: Record<string, { label: string; step: number }> = {
   mantener: { label: 'Mantener el nivel elegido durante 4 semanas', step: 0 }
 };
 
+export interface PlanEditorExternalCommand {
+  nonce: number;
+  mode: 'replace' | 'patchDigito';
+  draft: Partial<ClinicalPlan>;
+}
+
 interface PlanEditorTabProps {
   exercises: Exercise[];
   puntoFotos: Record<string, string>;
@@ -48,7 +54,7 @@ interface PlanEditorTabProps {
   onSavePuntoFoto: (cod: string, dataUrl: string) => void;
   onDeletePuntoFoto: (cod: string) => void;
   onOpenGeneratedPlan: (plan: ClinicalPlan) => void;
-  initialDraft?: Partial<ClinicalPlan> | null;
+  externalCommand?: PlanEditorExternalCommand | null;
 }
 
 export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
@@ -61,32 +67,36 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
   onSavePuntoFoto,
   onDeletePuntoFoto,
   onOpenGeneratedPlan,
-  initialDraft
+  externalCommand
 }) => {
+  // Track whether we are editing an already-saved plan
+  const [editingPlanId, setEditingPlanId] = useState<string | undefined>(undefined);
+  const [editingCreatedAt, setEditingCreatedAt] = useState<number | undefined>(undefined);
+
   // Form Draft State
-  const [paciente, setPaciente] = useState(initialDraft?.paciente || '');
-  const [edad, setEdad] = useState(initialDraft?.edad || '');
-  const [sexo, setSexo] = useState(initialDraft?.sexo || '');
-  const [condicion, setCondicion] = useState(initialDraft?.condicion || '');
-  const [condicionMedica, setCondicionMedica] = useState(initialDraft?.condicionMedica || '');
-  const [diagnostico, setDiagnostico] = useState(initialDraft?.diagnostico || '');
-  const [profesional, setProfesional] = useState(initialDraft?.profesional || '');
-  const [fecha, setFecha] = useState(initialDraft?.fecha || todayStr());
-  const [notas, setNotas] = useState(initialDraft?.notas || '');
-  const [items, setItems] = useState<PlanItem[]>(initialDraft?.items || []);
+  const [paciente, setPaciente] = useState('');
+  const [edad, setEdad] = useState('');
+  const [sexo, setSexo] = useState('');
+  const [condicion, setCondicion] = useState('');
+  const [condicionMedica, setCondicionMedica] = useState('');
+  const [diagnostico, setDiagnostico] = useState('');
+  const [profesional, setProfesional] = useState('');
+  const [fecha, setFecha] = useState(todayStr());
+  const [notas, setNotas] = useState('');
+  const [items, setItems] = useState<PlanItem[]>([]);
 
   // Progression & Frecuencia
-  const [frecuencia, setFrecuencia] = useState<number>(initialDraft?.frecuencia || 3);
-  const [progModo, setProgModo] = useState<string>(initialDraft?.progModo || 'sube2');
+  const [frecuencia, setFrecuencia] = useState<number>(3);
+  const [progModo, setProgModo] = useState<string>('sube2');
 
   // Digitopuntura
-  const [digitoGrupoId, setDigitoGrupoId] = useState<string>(initialDraft?.digito?.grupoId || '');
-  const [digitoPuntos, setDigitoPuntos] = useState<DigitoPoint[]>(initialDraft?.digito?.puntos || []);
+  const [digitoGrupoId, setDigitoGrupoId] = useState<string>('');
+  const [digitoPuntos, setDigitoPuntos] = useState<DigitoPoint[]>([]);
 
   // TCM
-  const [tcmPatron, setTcmPatron] = useState<string>(initialDraft?.tcm?.patron || '');
-  const [tcmLengua, setTcmLengua] = useState<string>(initialDraft?.tcm?.lengua || '');
-  const [tcmPulso, setTcmPulso] = useState<string>(initialDraft?.tcm?.pulso || '');
+  const [tcmPatron, setTcmPatron] = useState<string>('');
+  const [tcmLengua, setTcmLengua] = useState<string>('');
+  const [tcmPulso, setTcmPulso] = useState<string>('');
 
   // Filtering
   const [searchQuery, setSearchQuery] = useState('');
@@ -101,6 +111,47 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
   // Errors & UI feedback
   const [formError, setFormError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
+
+  React.useEffect(() => {
+    if (!externalCommand) return;
+    const { mode, draft } = externalCommand;
+    if (mode === 'patchDigito') {
+      if (draft.digito) {
+        setDigitoGrupoId(draft.digito.grupoId || '');
+        setDigitoPuntos(draft.digito.puntos || []);
+      }
+      if (draft.tcm) {
+        setTcmPatron(draft.tcm.patron || '');
+        if (draft.tcm.lengua) setTcmLengua(draft.tcm.lengua);
+        if (draft.tcm.pulso) setTcmPulso(draft.tcm.pulso);
+      }
+      setToastMessage('Digitopuntura aplicada a la pauta actual.');
+      const t = setTimeout(() => setToastMessage(''), 2500);
+      return () => clearTimeout(t);
+    }
+
+    // mode === 'replace'
+    setEditingPlanId(draft.id);
+    setEditingCreatedAt(draft.createdAt);
+    setPaciente(draft.paciente || '');
+    setEdad(draft.edad || '');
+    setSexo(draft.sexo || '');
+    setCondicion(draft.condicion || '');
+    setCondicionMedica(draft.condicionMedica || '');
+    setDiagnostico(draft.diagnostico || '');
+    setProfesional(draft.profesional || '');
+    setFecha(draft.fecha || todayStr());
+    setNotas(draft.notas || '');
+    setItems(draft.items || []);
+    setFrecuencia(draft.frecuencia || 3);
+    setProgModo(draft.progModo || 'sube2');
+    setDigitoGrupoId(draft.digito?.grupoId || '');
+    setDigitoPuntos(draft.digito?.puntos || []);
+    setTcmPatron(draft.tcm?.patron || '');
+    setTcmLengua(draft.tcm?.lengua || '');
+    setTcmPulso(draft.tcm?.pulso || '');
+    setFormError('');
+  }, [externalCommand]);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -267,6 +318,8 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
 
   // Reset Draft
   const handleResetDraft = () => {
+    setEditingPlanId(undefined);
+    setEditingCreatedAt(undefined);
     setPaciente('');
     setEdad('');
     setSexo('');
@@ -277,6 +330,8 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
     setFecha(todayStr());
     setNotas('');
     setItems([]);
+    setFrecuencia(3);
+    setProgModo('sube2');
     setDigitoGrupoId('');
     setDigitoPuntos([]);
     setTcmPatron('');
@@ -300,12 +355,13 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
       return;
     }
 
-    const planToSave: Omit<ClinicalPlan, 'id'> = {
+    const planToSave: Omit<ClinicalPlan, 'id'> & { id?: string } = {
+      ...(editingPlanId ? { id: editingPlanId } : {}),
       paciente: paciente.trim(),
-      edad: edad || undefined,
-      sexo: sexo || undefined,
-      condicion: condicion || undefined,
-      condicionMedica: condicionMedica || undefined,
+      ...(edad ? { edad } : {}),
+      ...(sexo ? { sexo } : {}),
+      ...(condicion ? { condicion } : {}),
+      ...(condicionMedica.trim() ? { condicionMedica: condicionMedica.trim() } : {}),
       diagnostico: diagnostico.trim(),
       profesional: profesional.trim(),
       fecha: fecha || todayStr(),
@@ -313,12 +369,14 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
       items: items,
       frecuencia,
       progModo,
-      digito: digitoPuntos.length > 0 ? { grupoId: digitoGrupoId, puntos: digitoPuntos } : undefined,
-      tcm: tcmPatron ? { patron: tcmPatron, lengua: tcmLengua, pulso: tcmPulso } : undefined,
-      createdAt: Date.now()
+      ...(digitoPuntos.length > 0 ? { digito: { grupoId: digitoGrupoId, puntos: digitoPuntos } } : {}),
+      ...(tcmPatron ? { tcm: { patron: tcmPatron, lengua: tcmLengua, pulso: tcmPulso } } : {}),
+      createdAt: editingCreatedAt || Date.now()
     };
 
     const saved = onSavePlan(planToSave);
+    setEditingPlanId(saved.id);
+    setEditingCreatedAt(saved.createdAt);
     onOpenGeneratedPlan(saved);
   };
 
@@ -567,7 +625,7 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
                 </div>
               ) : (
                 filteredExercises.map(ex => {
-                  const catDef = CATEGORIES[ex.categoria];
+                  const catDef = CATEGORIES[ex.categoria] || CATEGORIES.flexibilidad;
                   const inDraftCount = items.filter(it => it.nombre === ex.nombre).length;
 
                   return (
@@ -628,6 +686,25 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
 
         {/* Right Column (7 cols) - Draft Builder */}
         <div className="lg:col-span-7 space-y-5">
+          {editingPlanId && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-900 rounded-2xl px-4 py-3 text-xs flex flex-wrap items-center justify-between gap-2">
+              <span>
+                ✏️ <b>Editando pauta guardada</b> de <b>{paciente || 'Paciente'}</b>. Al guardar, se actualizará este registro.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingPlanId(undefined);
+                  setEditingCreatedAt(undefined);
+                  triggerToast('Ahora se guardará como una pauta nueva.');
+                }}
+                className="px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-800 font-semibold rounded-lg border border-blue-200 cursor-pointer"
+              >
+                Guardar como nueva copia
+              </button>
+            </div>
+          )}
+
           {/* Rapid Pathology Templates */}
           <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
             <h2 className="text-sm font-bold text-slate-900 mb-1">Pautas Rápidas por Diagnóstico</h2>
@@ -787,13 +864,13 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
                             </span>
                             <span
                               className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${
-                                CATEGORIES[it.categoria].badgeClass
+                                (CATEGORIES[it.categoria] || CATEGORIES.flexibilidad).badgeClass
                               }`}
                             >
-                              {CATEGORIES[it.categoria].label}
+                              {(CATEGORIES[it.categoria] || CATEGORIES.flexibilidad).label}
                             </span>
                             <span className="text-xs font-semibold text-blue-700">
-                              · {LEVEL_LABEL[it.nivel]}
+                              · {LEVEL_LABEL[it.nivel] || LEVEL_LABEL.bajo}
                             </span>
                           </div>
 
@@ -1042,6 +1119,7 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
                                 onChange={e => {
                                   const file = e.target.files?.[0];
                                   if (file) handleUploadPhoto(pt.cod, file);
+                                  e.target.value = '';
                                 }}
                               />
                             </label>
@@ -1071,11 +1149,33 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
                   className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900"
                 >
                   <option value="">Sin patrón de MTC definido</option>
-                  {TCM_PATRONES.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre}
-                    </option>
-                  ))}
+                  {digitoGrupoId && (TCM_POR_GRUPO[digitoGrupoId] || []).length > 0 ? (
+                    <>
+                      <optgroup label="Sugeridos para la zona seleccionada">
+                        {(TCM_POR_GRUPO[digitoGrupoId] || []).map(pId => {
+                          const p = TCM_PATRONES.find(x => x.id === pId);
+                          return p ? (
+                            <option key={p.id} value={p.id}>
+                              {p.nombre}
+                            </option>
+                          ) : null;
+                        })}
+                      </optgroup>
+                      <optgroup label="Otros Patrones">
+                        {TCM_PATRONES.filter(p => !(TCM_POR_GRUPO[digitoGrupoId] || []).includes(p.id)).map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.nombre}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </>
+                  ) : (
+                    TCM_PATRONES.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -1119,46 +1219,46 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
                       </div>
 
                       {/* Variant point substitutions */}
-                      {digitoPuntos.length > 0 && (
-                        <div className="pt-2 border-t border-slate-200">
-                          <span className="font-bold text-slate-800 block mb-1">
-                            Puntos variantes para este patrón:
-                          </span>
-                          <div className="flex flex-wrap gap-1.5">
-                            {pat.variantes.map(vCod => {
-                              const alreadyIn = digitoPuntos.some(p => p.cod === vCod);
-                              const ptData = ALL_POINTS_MAP[vCod];
-                              if (!ptData) return null;
+                      <div className="pt-2 border-t border-slate-200">
+                        <span className="font-bold text-slate-800 block mb-1">
+                          Puntos variantes para este patrón:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {pat.variantes.map(vCod => {
+                            const alreadyIn = digitoPuntos.some(p => p.cod === vCod);
+                            const ptData = ALL_POINTS_MAP[vCod];
+                            if (!ptData) return null;
 
-                              return (
-                                <button
-                                  key={vCod}
-                                  onClick={() => {
-                                    if (alreadyIn) {
-                                      triggerToast(`${vCod} ya está en la pauta.`);
-                                      return;
-                                    }
-                                    // replace last point or append
-                                    setDigitoPuntos(prev => {
-                                      const copy = [...prev];
-                                      copy[copy.length - 1] = { ...ptData, variante: true, patron: tcmPatron };
-                                      return copy;
-                                    });
-                                    triggerToast(`Punto ${vCod} incorporado.`);
-                                  }}
-                                  className={`text-xs px-2 py-1 rounded-lg border font-semibold cursor-pointer ${
-                                    alreadyIn
-                                      ? 'bg-purple-100 text-purple-900 border-purple-300'
-                                      : 'bg-white text-slate-700 border-slate-200 hover:border-purple-400'
-                                  }`}
-                                >
-                                  {vCod} {alreadyIn ? '✓' : '+ sustituir'}
-                                </button>
-                              );
-                            })}
-                          </div>
+                            return (
+                              <button
+                                key={vCod}
+                                type="button"
+                                onClick={() => {
+                                  if (alreadyIn) {
+                                    triggerToast(`${vCod} ya está en la pauta.`);
+                                    return;
+                                  }
+                                  setDigitoPuntos(prev => {
+                                    const newPt = { ...ptData, variante: true, patron: tcmPatron };
+                                    if (prev.length === 0) return [newPt];
+                                    const copy = [...prev];
+                                    copy[copy.length - 1] = newPt;
+                                    return copy;
+                                  });
+                                  triggerToast(`Punto ${vCod} incorporado.`);
+                                }}
+                                className={`text-xs px-2 py-1 rounded-lg border font-semibold cursor-pointer ${
+                                  alreadyIn
+                                    ? 'bg-purple-100 text-purple-900 border-purple-300'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:border-purple-400'
+                                }`}
+                              >
+                                {vCod} {alreadyIn ? '✓' : digitoPuntos.length > 0 ? '+ sustituir' : '+ agregar'}
+                              </button>
+                            );
+                          })}
                         </div>
-                      )}
+                      </div>
                     </div>
                   );
                 })()
@@ -1243,10 +1343,11 @@ export const PlanEditorTab: React.FC<PlanEditorTabProps> = ({
             )}
 
             <button
+              type="button"
               onClick={handleGeneratePlan}
               className="w-full sm:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-sm hover:shadow transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-2"
             >
-              <span>Generar Pauta Clínica</span>
+              <span>{editingPlanId ? 'Guardar Cambios y Ver Pauta' : 'Generar Pauta Clínica'}</span>
               <span>→</span>
             </button>
           </div>

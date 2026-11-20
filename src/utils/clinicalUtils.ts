@@ -1,6 +1,6 @@
 import { ClinicalPlan } from '../types/clinical';
 import { CATEGORIES, LEVEL_LABEL } from '../data/seedExercises';
-import { DIGITO_GROUPS, ytPointUrl, DIGITO_TECNICA, DIGITO_GENERAL } from '../data/digitopunctureData';
+import { DIGITO_GROUPS, ytPointUrl, DIGITO_TECNICA, DIGITO_GENERAL, renderPointSvg } from '../data/digitopunctureData';
 import { TCM_PATRONES } from '../data/tcmPatternsData';
 
 import { LOGO_DATA_URI } from './logoDataUri';
@@ -82,10 +82,10 @@ export function ytExerciseUrl(nombre: string): string {
 export function resizeImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
-    fr.onerror = reject;
+    fr.onerror = () => reject(new Error('No se pudo leer el archivo de imagen.'));
     fr.onload = () => {
       const img = new Image();
-      img.onerror = reject;
+      img.onerror = () => reject(new Error('El archivo seleccionado no es una imagen válida.'));
       img.onload = () => {
         let dim = 480;
         let q = 0.72;
@@ -103,6 +103,10 @@ export function resizeImageFile(file: File): Promise<string> {
           }
           dim = Math.round(dim * 0.8);
           q = Math.max(0.5, q - 0.08);
+        }
+        if (!out) {
+          reject(new Error('No se pudo procesar la imagen.'));
+          return;
         }
         resolve(out);
       };
@@ -318,6 +322,12 @@ export function generateStandaloneMobileHtml(
     });
   });
 
+  const PROG_FRASE: Record<string, string> = {
+    sube2: 'Cada 2 semanas, si no hay dolor, suba un nivel de carga.',
+    sube1: 'Cada semana, si no hay dolor, suba un nivel de carga.',
+    mantener: 'Mantenga la misma carga durante las 4 semanas.'
+  };
+
   // Digitopuntura html
   let digitoHtml = '';
   if (plan.digito && plan.digito.puntos.length > 0) {
@@ -325,8 +335,10 @@ export function generateStandaloneMobileHtml(
     digitoHtml += `<h2 style="color:#7c3aed;">Digitopuntura${g ? ' — ' + escapeHtml(g.nombre) : ''}</h2>`;
     plan.digito.puntos.forEach((p, i) => {
       const userPhoto = puntoFotos[p.cod];
+      const svgDiagram = renderPointSvg(p.cod, 120);
       digitoHtml += `
         <div style="border-left:4px solid #7c3aed;background:#f8fafc;padding:10px 14px;margin-bottom:10px;border-radius:0 12px 12px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+          ${svgDiagram ? `<div>${svgDiagram}</div>` : ''}
           ${
             userPhoto
               ? `<div><img src="${userPhoto}" alt="${escapeHtml(p.cod)}" style="width:120px;height:auto;border-radius:8px;border:1px solid #cbd5e1;"></div>`
@@ -344,6 +356,23 @@ export function generateStandaloneMobileHtml(
       `;
     });
     digitoHtml += `<p class="muted" style="font-size:.82rem;">${escapeHtml(DIGITO_TECNICA)}</p>`;
+  }
+
+  // TCM html
+  let tcmHtml = '';
+  if (plan.tcm && plan.tcm.patron) {
+    const tcmPat = TCM_PATRONES.find(x => x.id === plan.tcm?.patron);
+    if (tcmPat) {
+      tcmHtml = `
+        <h2>Orientación Complementaria (MTC — ${escapeHtml(tcmPat.nombre)})</h2>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;font-size:.88rem;">
+          <b>Autocuidado:</b>
+          <ul style="margin:6px 0 10px 18px;padding:0;">${tcmPat.autocuidado.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
+          <b>Orientación nutricional:</b>
+          <ul style="margin:6px 0 0 18px;padding:0;">${tcmPat.dieta.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>
+        </div>
+      `;
+    }
   }
 
   return `<!DOCTYPE html>
@@ -377,9 +406,11 @@ export function generateStandaloneMobileHtml(
     ${plan.notas ? `<h2>Indicaciones generales</h2><p style="font-size:.9rem;">${escapeHtml(plan.notas).replace(/\n/g, '<br>')}</p>` : ''}
 
     <h2>Plan de 4 semanas</h2>
-    <p style="font-size:.9rem;margin:0 0 10px;"><b>Frecuencia recomendada:</b> ${plan.frecuencia || 3} días por semana, con al menos un día de descanso entre sesiones de fortalecimiento.</p>
+    <p style="font-size:.9rem;margin:0 0 10px;"><b>Frecuencia recomendada:</b> ${plan.frecuencia || 3} días por semana, con al menos un día de descanso entre sesiones de fortalecimiento. ${escapeHtml(PROG_FRASE[plan.progModo] || PROG_FRASE.sube2)}</p>
 
     ${digitoHtml}
+
+    ${tcmHtml}
 
     ${reg}
 

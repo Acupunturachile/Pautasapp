@@ -14,9 +14,7 @@ import {
   Users,
   Copy,
   Check,
-  ExternalLink,
-  UserCheck,
-  KeyRound
+  ExternalLink
 } from 'lucide-react';
 
 interface LoginPageProps {
@@ -35,7 +33,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onDismissAuthError
 }) => {
   const [showRoster, setShowRoster] = useState(false);
-  const [showDomainGuide, setShowDomainGuide] = useState(true);
   const [copiedDomain, setCopiedDomain] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -167,30 +164,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
 
               {/* Step by step */}
-              {showDomainGuide && (
-                <div className="pt-2 border-t border-amber-200/80 text-[11px] text-amber-950 space-y-1.5">
-                  <p className="font-bold text-amber-900">Pasos para autorizar en 30 segundos:</p>
-                  <ol className="list-decimal list-inside space-y-1 text-amber-900 leading-relaxed">
-                    <li>
-                      Ingresa a{' '}
-                      <a
-                        href="https://console.firebase.google.com/project/gen-lang-client-0355942182/authentication/settings"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline font-bold inline-flex items-center gap-0.5 text-amber-950"
-                      >
-                        Firebase Console <ExternalLink className="w-3 h-3" />
-                      </a>.
-                    </li>
-                    <li>
-                      En la pestaña <b>Settings (Ajustes)</b>, ve a la sección <b>Authorized domains (Dominios autorizados)</b>.
-                    </li>
-                    <li>
-                      Haz clic en <b>Add domain (Agregar dominio)</b> y pega: <b>{currentHost}</b> (sin http y sin punto final).
-                    </li>
-                  </ol>
-                </div>
-              )}
+              <div className="pt-2 border-t border-amber-200/80 text-[11px] text-amber-950 space-y-1.5">
+                <p className="font-bold text-amber-900">Pasos para autorizar en 30 segundos:</p>
+                <ol className="list-decimal list-inside space-y-1 text-amber-900 leading-relaxed">
+                  <li>
+                    Ingresa a{' '}
+                    <a
+                      href="https://console.firebase.google.com/project/gen-lang-client-0355942182/authentication/settings"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline font-bold inline-flex items-center gap-0.5 text-amber-950"
+                    >
+                      Firebase Console <ExternalLink className="w-3 h-3" />
+                    </a>.
+                  </li>
+                  <li>
+                    En la pestaña <b>Settings (Ajustes)</b>, ve a la sección <b>Authorized domains (Dominios autorizados)</b>.
+                  </li>
+                  <li>
+                    Haz clic en <b>Add domain (Agregar dominio)</b> y pega: <b>{currentHost}</b> (sin http y sin punto final).
+                  </li>
+                </ol>
+              </div>
             </div>
           )}
 
